@@ -1,3 +1,5 @@
+import { createContext, runInContext } from "node:vm";
+
 import type { InsertApp } from "@shared/schema";
 import type { ImportAppFromUrlInput } from "@shared/routes";
 
@@ -28,6 +30,11 @@ type GoogleJsonLd = {
     ratingValue?: string | number;
     ratingCount?: string | number;
   };
+};
+
+type GoogleInitDataPayload = {
+  key?: string;
+  data?: unknown;
 };
 
 function escapeRegExp(value: string): string {
@@ -163,7 +170,122 @@ function getGoogleAppWindow(html: string, packageId: string): string {
   return similarAppsIndex === -1 ? window : window.slice(0, similarAppsIndex);
 }
 
-function extractGoogleLongDescription(html: string, packageId: string, developer: string | null): string | null {
+function extractGoogleInitDataChunks(html: string): Record<string, unknown> {
+  const scripts = Array.from(html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi));
+  const chunks: Record<string, unknown> = {};
+  const context = createContext({
+    AF_initDataCallback(payload: GoogleInitDataPayload) {
+      if (payload.key) {
+        chunks[payload.key] = payload.data;
+      }
+    },
+    window: {},
+    self: {},
+    document: {},
+  });
+
+  for (const match of scripts) {
+    const script = match[1];
+    if (!script.includes("AF_initDataCallback({key:")) {
+      continue;
+    }
+
+    try {
+      runInContext(script, context, { timeout: 1000 });
+    } catch {
+      continue;
+    }
+  }
+
+  return chunks;
+}
+
+function getValueAtPath(value: unknown, path: number[]): unknown {
+  let current = value;
+
+  for (const segment of path) {
+    if (!Array.isArray(current) || segment >= current.length) {
+      return null;
+    }
+
+    current = current[segment];
+  }
+
+  return current ?? null;
+}
+
+function getStringAtPath(value: unknown, path: number[]): string | null {
+  const candidate = getValueAtPath(value, path);
+  return typeof candidate === "string" ? candidate : null;
+}
+
+function collectStrings(value: unknown, output: string[] = []): string[] {
+  if (typeof value === "string") {
+    output.push(value);
+    return output;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectStrings(entry, output));
+    return output;
+  }
+
+  if (value && typeof value === "object") {
+    Object.values(value).forEach((entry) => collectStrings(entry, output));
+  }
+
+  return output;
+}
+
+function extractGoogleDetailsData(html: string): unknown[] | null {
+  const chunks = extractGoogleInitDataChunks(html);
+  const ds5 = chunks["ds:5"];
+  const detailsData = getValueAtPath(ds5, [1, 2]);
+  return Array.isArray(detailsData) ? detailsData : null;
+}
+
+function extractGoogleLongDescriptionFromDetails(detailsData: unknown[] | null): string | null {
+  const directDescription = stripHtml(getStringAtPath(detailsData, [12, 0, 0, 1]));
+  if (directDescription) {
+    return directDescription;
+  }
+
+  const descriptionSection = getValueAtPath(detailsData, [12]);
+  const candidates = collectStrings(descriptionSection)
+    .map((entry) => stripHtml(entry))
+    .filter((entry): entry is string => Boolean(entry))
+    .filter((entry) => entry.length > 240)
+    .sort((left, right) => right.length - left.length);
+
+  return candidates[0] ?? null;
+}
+
+function extractGoogleIconFromDetails(detailsData: unknown[] | null): string | null {
+  return getStringAtPath(detailsData, [95, 0, 3, 2]);
+}
+
+function extractGoogleScreenshotsFromDetails(detailsData: unknown[] | null, iconUrl: string | null): string[] {
+  const screenshotEntries = getValueAtPath(detailsData, [78, 0]);
+  if (Array.isArray(screenshotEntries)) {
+    const screenshots = screenshotEntries
+      .map((entry) => getStringAtPath(entry, [3, 2]))
+      .filter((entry): entry is string => Boolean(entry));
+
+    const filtered = unique(screenshots).filter((url) => url !== iconUrl);
+    if (filtered.length > 0) {
+      return filtered.slice(0, 16);
+    }
+  }
+
+  return [];
+}
+
+function extractGoogleLongDescription(html: string, packageId: string, detailsData: unknown[] | null, developer: string | null): string | null {
+  const structuredDescription = extractGoogleLongDescriptionFromDetails(detailsData);
+  if (structuredDescription) {
+    return structuredDescription;
+  }
+
   const targetWindow = getGoogleAppWindow(html, packageId);
 
   if (developer) {
@@ -179,12 +301,18 @@ function extractGoogleLongDescription(html: string, packageId: string, developer
   return fallbackMatch?.[1] ? stripHtml(decodeJsonString(fallbackMatch[1])) : null;
 }
 
-function extractGoogleScreenshots(html: string, packageId: string, iconUrl: string | null): string[] {
+function extractGoogleScreenshots(html: string, packageId: string, detailsData: unknown[] | null, iconUrl: string | null): string[] {
+  const structuredScreenshots = extractGoogleScreenshotsFromDetails(detailsData, iconUrl);
+  if (structuredScreenshots.length > 0) {
+    return structuredScreenshots;
+  }
+
   const targetWindow = getGoogleAppWindow(html, packageId);
   const matches = targetWindow.match(/https:\/\/play-lh\.googleusercontent\.com\/[A-Za-z0-9_\-.=]+/g) ?? [];
 
   return unique(matches)
     .filter((url) => url !== iconUrl)
+    .filter((url) => !/=s\d+/i.test(url))
     .slice(0, 12);
 }
 
@@ -238,7 +366,7 @@ async function fetchAppleMetadata(target: ParsedStoreUrl): Promise<ImportedMetad
 
   const response = await fetch(lookupUrl, {
     headers: {
-      "Accept": "application/json",
+      Accept: "application/json",
       "User-Agent": BROWSER_USER_AGENT,
     },
   });
@@ -284,7 +412,7 @@ async function fetchGoogleMetadata(target: ParsedStoreUrl): Promise<ImportedMeta
 
   const response = await fetch(detailsUrl, {
     headers: {
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.9",
       "User-Agent": BROWSER_USER_AGENT,
       "sec-ch-ua": '"Chromium";v="132", "Google Chrome";v="132", "Not_A Brand";v="99"',
@@ -304,14 +432,15 @@ async function fetchGoogleMetadata(target: ParsedStoreUrl): Promise<ImportedMeta
     throw new Error("Could not parse the Google Play page. The page format may have changed.");
   }
 
+  const detailsData = extractGoogleDetailsData(html);
   const metaTitle = parseMetaContent(html, "og:title");
   const metaDescription = parseMetaContent(html, "og:description") ?? parseMetaContent(html, "description");
   const metaImage = parseMetaContent(html, "og:image");
   const metaUrl = parseMetaContent(html, "og:url");
-  const developer = jsonLd.author?.name?.trim() || null;
-  const longDescription = extractGoogleLongDescription(html, target.storeId, developer);
+  const developer = jsonLd.author?.name?.trim() || getStringAtPath(detailsData, [37, 0]) || null;
+  const longDescription = extractGoogleLongDescription(html, target.storeId, detailsData, developer);
   const description = longDescription ?? stripHtml(jsonLd.description) ?? stripHtml(metaDescription);
-  const iconUrl = typeof jsonLd.image === "string" ? jsonLd.image : metaImage;
+  const iconUrl = extractGoogleIconFromDetails(detailsData) ?? (typeof jsonLd.image === "string" ? jsonLd.image : metaImage);
 
   return {
     store: "google",
@@ -325,7 +454,7 @@ async function fetchGoogleMetadata(target: ParsedStoreUrl): Promise<ImportedMeta
     rating: toNullableNumber(jsonLd.aggregateRating?.ratingValue),
     ratingCount: toNullableInteger(jsonLd.aggregateRating?.ratingCount),
     primaryCategory: jsonLd.applicationCategory?.replace(/_/g, " ") ?? null,
-    screenshots: extractGoogleScreenshots(html, target.storeId, iconUrl),
+    screenshots: extractGoogleScreenshots(html, target.storeId, detailsData, iconUrl),
   };
 }
 
@@ -342,4 +471,3 @@ export async function importAppFromStoreUrl(input: ImportAppFromUrlInput): Promi
     ...metadata,
   };
 }
-

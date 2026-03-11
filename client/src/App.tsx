@@ -5,9 +5,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 
-// Pages
 import Dashboard from "./pages/Dashboard";
 import AppCatalog from "./pages/AppCatalog";
+import AppDetails from "./pages/AppDetails";
 import KeywordTracking from "./pages/KeywordTracking";
 import Reports from "./pages/Reports";
 
@@ -15,6 +15,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/catalog/:id" component={AppDetails} />
       <Route path="/catalog" component={AppCatalog} />
       <Route path="/keywords" component={KeywordTracking} />
       <Route path="/reports" component={Reports} />

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useApps, useDeleteApp, useImportApp } from "@/hooks/use-apps";
 import { useWorkspaces } from "@/hooks/use-workspaces";
@@ -18,6 +19,7 @@ export default function AppCatalog() {
   const importApp = useImportApp();
   const deleteApp = useDeleteApp();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const [isOpen, setIsOpen] = useState(false);
 
@@ -28,7 +30,7 @@ export default function AppCatalog() {
 
     const workspaceId = formData.get("workspaceId")
       ? Number.parseInt(formData.get("workspaceId") as string, 10)
-      : (workspaces[0]?.id || 1);
+      : workspaces[0]?.id || 1;
 
     try {
       const app = await importApp.mutateAsync({
@@ -43,6 +45,7 @@ export default function AppCatalog() {
         title: "App imported",
         description: `${app.name} was added to your catalog.`,
       });
+      navigate(`/catalog/${app.id}`);
     } catch (err: any) {
       toast({
         title: "Import failed",
@@ -139,13 +142,18 @@ export default function AppCatalog() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {apps.map((app) => (
-              <Card key={app.id} className="border-border/40 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-primary/20 transition-all duration-300 rounded-2xl group relative overflow-hidden">
+              <Card
+                key={app.id}
+                onClick={() => navigate(`/catalog/${app.id}`)}
+                className="border-border/40 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-primary/20 transition-all duration-300 rounded-2xl group relative overflow-hidden cursor-pointer"
+              >
                 <div className="absolute top-4 right-4 z-10 flex gap-2">
                   <Badge className={app.type === "owned" ? "bg-primary text-primary-foreground hover:bg-primary" : "bg-accent text-accent-foreground hover:bg-accent"}>
                     {app.type.charAt(0).toUpperCase() + app.type.slice(1)}
                   </Badge>
                   <button
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation();
                       if (confirm("Delete this app?")) deleteApp.mutate(app.id);
                     }}
                     className="p-1.5 rounded-full bg-background/80 backdrop-blur-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
@@ -187,6 +195,7 @@ export default function AppCatalog() {
                       href={app.storeUrl}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={(event) => event.stopPropagation()}
                       className="mt-3 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
                     >
                       View store listing <ExternalLink className="w-3 h-3" />
