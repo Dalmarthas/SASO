@@ -1,4 +1,5 @@
 import {
+  doublePrecision,
   index,
   integer,
   pgTable,
@@ -50,6 +51,13 @@ export const apps = pgTable(
     name: text("name").notNull(),
     developer: text("developer"),
     iconUrl: text("icon_url"),
+    storeUrl: text("store_url"),
+    summary: text("summary"),
+    description: text("description"),
+    rating: doublePrecision("rating"),
+    ratingCount: integer("rating_count"),
+    primaryCategory: text("primary_category"),
+    screenshots: text("screenshots").array(),
     type: text("type").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -132,3 +140,4 @@ export type InsertClient = z.infer<typeof insertClientSchema>;
 export type InsertApp = z.infer<typeof insertAppSchema>;
 export type InsertTrackedKeywordRecord = z.infer<typeof insertTrackedKeywordRecordSchema>;
 export type InsertKeywordRankSnapshot = z.infer<typeof insertKeywordRankSnapshotSchema>;
+

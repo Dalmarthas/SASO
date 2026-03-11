@@ -2,18 +2,40 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { z } from "zod";
 
+function toNetworkAwareError(error: unknown, fallbackMessage: string): Error {
+  if (error instanceof Error) {
+    if (/network|failed to fetch|fetch resource/i.test(error.message)) {
+      return new Error("Backend is not reachable. Restart the local app server and try again.");
+    }
+
+    return error;
+  }
+
+  return new Error(fallbackMessage);
+}
+
 export function useApps() {
   return useQuery({
     queryKey: [api.apps.list.path],
     queryFn: async () => {
-      const res = await fetch(api.apps.list.path, { credentials: "include" });
-      if (!res.ok) {
-        throw new Error("Failed to fetch apps");
-      }
+      try {
+        const res = await fetch(api.apps.list.path, { credentials: "include" });
+        if (!res.ok) {
+          throw new Error("Failed to fetch apps");
+        }
 
-      return api.apps.list.responses[200].parse(await res.json());
+        return api.apps.list.responses[200].parse(await res.json());
+      } catch (error) {
+        throw toNetworkAwareError(error, "Failed to fetch apps");
+      }
     },
   });
+}
+
+function invalidateAppQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: [api.apps.list.path] });
+  queryClient.invalidateQueries({ queryKey: [api.dashboard.summary.path] });
+  queryClient.invalidateQueries({ queryKey: [api.keywords.list.path] });
 }
 
 export function useCreateApp() {
@@ -21,26 +43,62 @@ export function useCreateApp() {
 
   return useMutation({
     mutationFn: async (data: z.infer<typeof api.apps.create.input>) => {
-      const validated = api.apps.create.input.parse(data);
-      const res = await fetch(api.apps.create.path, {
-        method: api.apps.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(validated),
-        credentials: "include",
-      });
+      try {
+        const validated = api.apps.create.input.parse(data);
+        const res = await fetch(api.apps.create.path, {
+          method: api.apps.create.method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(validated),
+          credentials: "include",
+        });
 
-      if (!res.ok) {
-        if (res.status === 400) {
-          const err = api.apps.create.responses[400].parse(await res.json());
-          throw new Error(err.message);
+        if (!res.ok) {
+          if (res.status === 400) {
+            const err = api.apps.create.responses[400].parse(await res.json());
+            throw new Error(err.message);
+          }
+
+          throw new Error("Failed to create app");
         }
 
-        throw new Error("Failed to create app");
+        return api.apps.create.responses[201].parse(await res.json());
+      } catch (error) {
+        throw toNetworkAwareError(error, "Failed to create app");
       }
-
-      return api.apps.create.responses[201].parse(await res.json());
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.apps.list.path] }),
+    onSuccess: () => invalidateAppQueries(queryClient),
+  });
+}
+
+export function useImportApp() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: z.infer<typeof api.apps.importFromUrl.input>) => {
+      try {
+        const validated = api.apps.importFromUrl.input.parse(data);
+        const res = await fetch(api.apps.importFromUrl.path, {
+          method: api.apps.importFromUrl.method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(validated),
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          if (res.status === 400) {
+            const err = api.apps.importFromUrl.responses[400].parse(await res.json());
+            throw new Error(err.message);
+          }
+
+          throw new Error("Failed to import app from store URL");
+        }
+
+        return api.apps.importFromUrl.responses[201].parse(await res.json());
+      } catch (error) {
+        throw toNetworkAwareError(error, "Failed to import app from store URL");
+      }
+    },
+    onSuccess: () => invalidateAppQueries(queryClient),
   });
 }
 
@@ -49,19 +107,19 @@ export function useDeleteApp() {
 
   return useMutation({
     mutationFn: async (id: number) => {
-      const res = await fetch(buildUrl(api.apps.delete.path, { id }), {
-        method: api.apps.delete.method,
-        credentials: "include",
-      });
+      try {
+        const res = await fetch(buildUrl(api.apps.delete.path, { id }), {
+          method: api.apps.delete.method,
+          credentials: "include",
+        });
 
-      if (!res.ok) {
-        throw new Error("Failed to delete app");
+        if (!res.ok) {
+          throw new Error("Failed to delete app");
+        }
+      } catch (error) {
+        throw toNetworkAwareError(error, "Failed to delete app");
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.apps.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.dashboard.summary.path] });
-      queryClient.invalidateQueries({ queryKey: [api.keywords.list.path] });
-    },
+    onSuccess: () => invalidateAppQueries(queryClient),
   });
 }

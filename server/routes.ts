@@ -1,12 +1,32 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { importAppFromStoreUrl } from "./store-import";
 import { api } from "@shared/routes";
 import { z } from "zod";
 
 function parseId(value: string) {
   const id = Number.parseInt(value, 10);
   return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function sendValidationError(res: { status: (code: number) => { json: (body: unknown) => unknown } }, error: unknown) {
+  if (error instanceof z.ZodError) {
+    return res.status(400).json({
+      message: error.errors[0].message,
+      field: error.errors[0].path.join("."),
+    });
+  }
+
+  if (error instanceof Error) {
+    return res.status(400).json({
+      message: error.message,
+    });
+  }
+
+  return res.status(400).json({
+    message: "Invalid request",
+  });
 }
 
 async function seedKeywordHistory(trackedKeywordId: number, ranks: number[], searchVolume: number) {
@@ -50,6 +70,13 @@ async function seedDatabase() {
     name: "FitPro Tracker",
     developer: "FitnessCorp",
     iconUrl: null,
+    storeUrl: null,
+    summary: null,
+    description: null,
+    rating: null,
+    ratingCount: null,
+    primaryCategory: null,
+    screenshots: null,
     type: "owned",
   });
 
@@ -61,6 +88,13 @@ async function seedDatabase() {
     name: "StrongLifts Competitor",
     developer: "CompetitorLLC",
     iconUrl: null,
+    storeUrl: null,
+    summary: null,
+    description: null,
+    rating: null,
+    ratingCount: null,
+    primaryCategory: null,
+    screenshots: null,
     type: "competitor",
   });
 
@@ -72,6 +106,13 @@ async function seedDatabase() {
     name: "Pocket Budget",
     developer: "FinTech Inc",
     iconUrl: null,
+    storeUrl: null,
+    summary: null,
+    description: null,
+    rating: null,
+    ratingCount: null,
+    primaryCategory: null,
+    screenshots: null,
     type: "owned",
   });
 
@@ -119,16 +160,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post(api.apps.create.path, async (req, res) => {
     try {
       const input = api.apps.create.input.parse(req.body);
-      const newApp = await storage.createApp(input);
-      res.status(201).json(newApp);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
+      const existing = await storage.findAppByStoreId(input.store, input.storeId);
+      if (existing) {
         return res.status(400).json({
-          message: err.errors[0].message,
-          field: err.errors[0].path.join("."),
+          message: "This app is already in your catalog.",
+          field: "storeId",
         });
       }
-      throw err;
+
+      const newApp = await storage.createApp(input);
+      res.status(201).json(newApp);
+    } catch (error) {
+      return sendValidationError(res, error);
+    }
+  });
+
+  app.post(api.apps.importFromUrl.path, async (req, res) => {
+    try {
+      const input = api.apps.importFromUrl.input.parse(req.body);
+      const importedApp = await importAppFromStoreUrl(input);
+      const existing = await storage.findAppByStoreId(importedApp.store, importedApp.storeId);
+
+      if (existing) {
+        return res.status(400).json({
+          message: "This app is already in your catalog.",
+          field: "url",
+        });
+      }
+
+      const createdApp = await storage.createApp(importedApp);
+      return res.status(201).json(createdApp);
+    } catch (error) {
+      return sendValidationError(res, error);
     }
   });
 
@@ -156,14 +219,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const input = api.keywords.create.input.parse(req.body);
       const newKeyword = await storage.createKeyword(input);
       res.status(201).json(newKeyword);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({
-          message: err.errors[0].message,
-          field: err.errors[0].path.join("."),
-        });
-      }
-      throw err;
+    } catch (error) {
+      return sendValidationError(res, error);
     }
   });
 

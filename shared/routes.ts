@@ -25,6 +25,13 @@ export const appSchema = z.object({
   name: z.string(),
   developer: z.string().nullable(),
   iconUrl: z.string().nullable(),
+  storeUrl: z.string().nullable(),
+  summary: z.string().nullable(),
+  description: z.string().nullable(),
+  rating: z.number().nullable(),
+  ratingCount: z.number().int().nullable(),
+  primaryCategory: z.string().nullable(),
+  screenshots: z.array(z.string()).nullable(),
   type: z.enum(["owned", "competitor"]),
   createdAt: isoDateSchema,
 });
@@ -64,6 +71,13 @@ export const createKeywordInputSchema = z.object({
   searchVolume: z.number().int().nonnegative().nullable().optional(),
 });
 
+export const importAppFromUrlInputSchema = z.object({
+  workspaceId: z.number().int().positive(),
+  clientId: z.number().int().positive().nullable().optional(),
+  type: z.enum(["owned", "competitor"]),
+  url: z.string().trim().url("A valid App Store or Google Play URL is required"),
+});
+
 export const dashboardResponseSchema = z.object({
   stats: z.object({
     trackedApps: z.number().int(),
@@ -81,6 +95,7 @@ export const dashboardResponseSchema = z.object({
 
 export type KeywordListItem = z.infer<typeof keywordListItemSchema>;
 export type CreateKeywordInput = z.infer<typeof createKeywordInputSchema>;
+export type ImportAppFromUrlInput = z.infer<typeof importAppFromUrlInputSchema>;
 export type DashboardResponse = z.infer<typeof dashboardResponseSchema>;
 
 export const api = {
@@ -108,6 +123,15 @@ export const api = {
       method: "POST" as const,
       path: "/api/apps" as const,
       input: insertAppSchema,
+      responses: {
+        201: appSchema,
+        400: errorSchemas.validation,
+      },
+    },
+    importFromUrl: {
+      method: "POST" as const,
+      path: "/api/apps/import" as const,
+      input: importAppFromUrlInputSchema,
       responses: {
         201: appSchema,
         400: errorSchemas.validation,
