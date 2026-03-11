@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useKeywords, useCreateKeyword, useDeleteKeyword } from "@/hooks/use-keywords";
 import { useApps } from "@/hooks/use-apps";
@@ -9,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, ArrowUpRight, ArrowDownRight, Minus, Search, KeyRound, Loader2 } from "lucide-react";
+import { Compass, Plus, Trash2, ArrowUpRight, ArrowDownRight, Minus, Search, KeyRound, Loader2 } from "lucide-react";
 
 export default function KeywordTracking() {
   const { data: keywords = [], isLoading } = useKeywords();
@@ -17,6 +18,7 @@ export default function KeywordTracking() {
   const createKeyword = useCreateKeyword();
   const deleteKeyword = useDeleteKeyword();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -88,62 +90,67 @@ export default function KeywordTracking() {
             <p className="text-muted-foreground mt-1 text-lg">Monitor visibility across app stores.</p>
           </div>
 
-          <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
-              <Button className="rounded-xl shadow-lg shadow-primary/20">
-                <Plus className="w-5 h-5 mr-2" /> Add Keyword
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px] rounded-2xl border-none shadow-2xl">
-              <DialogHeader>
-                <DialogTitle className="font-display text-2xl">Add Keyword</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-5 mt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="term">Keyword Term</Label>
-                  <Input id="term" name="term" required className="rounded-xl bg-muted/30" placeholder="e.g. meditation app" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="appId">Target App</Label>
-                  <Select name="appId" required>
-                    <SelectTrigger className="rounded-xl bg-muted/30">
-                      <SelectValue placeholder="Select app to track" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {apps.map((app) => (
-                        <SelectItem key={app.id} value={app.id.toString()}>{app.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="currentRank">Current Rank</Label>
-                    <Input id="currentRank" name="currentRank" type="number" className="rounded-xl bg-muted/30" placeholder="e.g. 5" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="previousRank">Prev. Rank</Label>
-                    <Input id="previousRank" name="previousRank" type="number" className="rounded-xl bg-muted/30" placeholder="e.g. 8" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="searchVolume">Volume</Label>
-                    <Input id="searchVolume" name="searchVolume" type="number" className="rounded-xl bg-muted/30" placeholder="e.g. 4500" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country Code</Label>
-                  <Input id="country" name="country" defaultValue="us" className="rounded-xl bg-muted/30 uppercase" maxLength={2} />
-                </div>
-
-                <Button type="submit" disabled={createKeyword.isPending} className="w-full rounded-xl h-12 text-base">
-                  {createKeyword.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Track Keyword"}
+          <div className="flex items-center gap-3">
+            <Button variant="outline" className="rounded-xl" onClick={() => navigate("/keyword-explorer")}>
+              <Compass className="mr-2 h-4 w-4" /> Explore Keywords
+            </Button>
+            <Dialog open={isOpen} onOpenChange={setIsOpen}>
+              <DialogTrigger asChild>
+                <Button className="rounded-xl shadow-lg shadow-primary/20">
+                  <Plus className="w-5 h-5 mr-2" /> Add Keyword
                 </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px] rounded-2xl border-none shadow-2xl">
+                <DialogHeader>
+                  <DialogTitle className="font-display text-2xl">Add Keyword</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-5 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="term">Keyword Term</Label>
+                    <Input id="term" name="term" required className="rounded-xl bg-muted/30" placeholder="e.g. meditation app" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="appId">Target App</Label>
+                    <Select name="appId" required>
+                      <SelectTrigger className="rounded-xl bg-muted/30">
+                        <SelectValue placeholder="Select app to track" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {apps.map((app) => (
+                          <SelectItem key={app.id} value={app.id.toString()}>{app.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="currentRank">Current Rank</Label>
+                      <Input id="currentRank" name="currentRank" type="number" className="rounded-xl bg-muted/30" placeholder="e.g. 5" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="previousRank">Prev. Rank</Label>
+                      <Input id="previousRank" name="previousRank" type="number" className="rounded-xl bg-muted/30" placeholder="e.g. 8" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="searchVolume">Volume</Label>
+                      <Input id="searchVolume" name="searchVolume" type="number" className="rounded-xl bg-muted/30" placeholder="e.g. 4500" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="country">Country Code</Label>
+                    <Input id="country" name="country" defaultValue="us" className="rounded-xl bg-muted/30 uppercase" maxLength={2} />
+                  </div>
+
+                  <Button type="submit" disabled={createKeyword.isPending} className="w-full rounded-xl h-12 text-base">
+                    {createKeyword.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : "Track Keyword"}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         <div className="bg-card rounded-2xl border border-border/40 shadow-sm overflow-hidden">
@@ -228,3 +235,6 @@ export default function KeywordTracking() {
     </AppLayout>
   );
 }
+
+
+

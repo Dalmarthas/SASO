@@ -71,6 +71,43 @@ export const createKeywordInputSchema = z.object({
   searchVolume: z.number().int().nonnegative().nullable().optional(),
 });
 
+export const exploreKeywordsInputSchema = z.object({
+  appId: z.coerce.number().int().positive(),
+  seed: z.string().trim().min(2, "Enter at least 2 characters to explore keywords"),
+  country: z.string().trim().min(2).max(2).default("us").transform((value) => value.toLowerCase()),
+  language: z.string().trim().min(2).max(5).default("en").transform((value) => value.toLowerCase()),
+  limit: z.coerce.number().int().min(6).max(36).default(18),
+});
+
+export const keywordExplorerResultSchema = z.object({
+  position: z.number().int().positive(),
+  storeId: z.string(),
+  name: z.string(),
+  developer: z.string().nullable(),
+  iconUrl: z.string().nullable(),
+  storeUrl: z.string().nullable(),
+  rating: z.number().nullable(),
+  ratingCount: z.number().int().nullable(),
+  summary: z.string().nullable(),
+  inCatalogAppId: z.number().int().nullable(),
+  inCatalogType: z.enum(["owned", "competitor"]).nullable(),
+  isSelectedApp: z.boolean(),
+});
+
+export const keywordExplorerResponseSchema = z.object({
+  appId: z.number().int().positive(),
+  store: z.enum(["apple", "google"]),
+  selectedAppName: z.string(),
+  selectedAppStoreId: z.string(),
+  seed: z.string(),
+  country: z.string(),
+  language: z.string(),
+  generatedAt: z.string(),
+  selectedAppFound: z.boolean(),
+  selectedAppResultPosition: z.number().int().positive().nullable(),
+  results: z.array(keywordExplorerResultSchema),
+});
+
 export const importAppFromUrlInputSchema = z.object({
   workspaceId: z.number().int().positive(),
   clientId: z.number().int().positive().nullable().optional(),
@@ -95,8 +132,11 @@ export const dashboardResponseSchema = z.object({
 
 export type KeywordListItem = z.infer<typeof keywordListItemSchema>;
 export type CreateKeywordInput = z.infer<typeof createKeywordInputSchema>;
+export type ExploreKeywordsInput = z.infer<typeof exploreKeywordsInputSchema>;
 export type ImportAppFromUrlInput = z.infer<typeof importAppFromUrlInputSchema>;
 export type DashboardResponse = z.infer<typeof dashboardResponseSchema>;
+export type KeywordExplorerResult = z.infer<typeof keywordExplorerResultSchema>;
+export type KeywordExplorerResponse = z.infer<typeof keywordExplorerResponseSchema>;
 
 export const api = {
   workspaces: {
@@ -167,6 +207,15 @@ export const api = {
       responses: {
         204: z.undefined(),
         404: errorSchemas.notFound,
+      },
+    },
+    explore: {
+      method: "GET" as const,
+      path: "/api/keyword-explorer" as const,
+      input: exploreKeywordsInputSchema,
+      responses: {
+        200: keywordExplorerResponseSchema,
+        400: errorSchemas.validation,
       },
     },
   },

@@ -1,10 +1,11 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Smartphone, KeyRound, BarChart3, Settings, Orbit } from "lucide-react";
+import { Compass, LayoutDashboard, Smartphone, KeyRound, BarChart3, Settings, Orbit } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/catalog", label: "App Catalog", icon: Smartphone },
+  { href: "/keyword-explorer", label: "Keyword Explorer", icon: Compass },
   { href: "/keywords", label: "Keyword Tracking", icon: KeyRound },
   { href: "/reports", label: "Reports", icon: BarChart3 },
 ];
@@ -55,3 +56,5 @@ export function Sidebar() {
     </aside>
   );
 }
+
+

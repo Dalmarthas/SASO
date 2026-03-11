@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db, hasDatabase } from "./db";
+import { buildKeywordExplorerResponse, normalizeKeywordTerm } from "./keyword-explorer";
 import {
   apps,
   clients,
@@ -17,7 +18,13 @@ import {
   type TrackedKeyword,
   type Workspace,
 } from "@shared/schema";
-import type { CreateKeywordInput, DashboardResponse, KeywordListItem } from "@shared/routes";
+import type {
+  CreateKeywordInput,
+  DashboardResponse,
+  ExploreKeywordsInput,
+  KeywordExplorerResponse,
+  KeywordListItem,
+} from "@shared/routes";
 
 function toIsoString(value: Date | string | null | undefined): string | null {
   if (!value) return null;
@@ -39,6 +46,7 @@ export interface IStorage {
   getKeywords(): Promise<KeywordListItem[]>;
   createKeyword(input: CreateKeywordInput): Promise<KeywordListItem>;
   deleteKeyword(id: number): Promise<boolean>;
+  exploreKeywords(input: ExploreKeywordsInput): Promise<KeywordExplorerResponse>;
   getDashboard(): Promise<DashboardResponse>;
   createWorkspace(workspace: InsertWorkspace): Promise<Workspace>;
   createClient(client: InsertClient): Promise<Client>;
@@ -90,6 +98,8 @@ class DatabaseStorage implements IStorage {
   }
 
   async createKeyword(input: CreateKeywordInput): Promise<KeywordListItem> {
+    await this.assertKeywordNotTracked(input);
+
     const keyword = await this.createTrackedKeywordRecord({
       appId: input.appId,
       term: input.term,
@@ -139,6 +149,17 @@ class DatabaseStorage implements IStorage {
       .returning({ id: trackedKeywords.id });
 
     return deleted.length > 0;
+  }
+
+  async exploreKeywords(input: ExploreKeywordsInput): Promise<KeywordExplorerResponse> {
+    const selectedApp = await this.getAppForExplorer(input.appId);
+    const catalogApps = await this.getApps();
+
+    return buildKeywordExplorerResponse({
+      selectedApp,
+      input,
+      catalogApps,
+    });
   }
 
   async getDashboard(): Promise<DashboardResponse> {
@@ -204,6 +225,38 @@ class DatabaseStorage implements IStorage {
   async createKeywordRankSnapshot(snapshot: InsertKeywordRankSnapshot): Promise<KeywordRankSnapshot> {
     const [created] = await this.database.insert(keywordRankSnapshots).values(snapshot).returning();
     return created;
+  }
+
+  private async assertKeywordNotTracked(input: CreateKeywordInput) {
+    const existing = await this.database
+      .select()
+      .from(trackedKeywords)
+      .where(
+        and(
+          eq(trackedKeywords.appId, input.appId),
+          eq(trackedKeywords.country, input.country),
+          eq(trackedKeywords.language, input.language),
+        ),
+      );
+
+    const normalizedTerm = normalizeKeywordTerm(input.term);
+    if (existing.some((keyword) => normalizeKeywordTerm(keyword.term) === normalizedTerm)) {
+      throw new Error("This keyword is already tracked for the selected app and market.");
+    }
+  }
+
+  private async getAppForExplorer(appId: number) {
+    const [app] = await this.database
+      .select()
+      .from(apps)
+      .where(eq(apps.id, appId))
+      .limit(1);
+
+    if (!app) {
+      throw new Error("Select a valid app to explore keywords.");
+    }
+
+    return app;
   }
 
   private async hydrateKeywords(keywordsToHydrate: TrackedKeyword[]): Promise<KeywordListItem[]> {
@@ -308,6 +361,8 @@ class MemoryStorage implements IStorage {
   }
 
   async createKeyword(input: CreateKeywordInput): Promise<KeywordListItem> {
+    await this.assertKeywordNotTracked(input);
+
     const keyword = await this.createTrackedKeywordRecord({
       appId: input.appId,
       term: input.term,
@@ -351,6 +406,17 @@ class MemoryStorage implements IStorage {
     this.trackedKeywords = this.trackedKeywords.filter((keyword) => keyword.id !== id);
     this.snapshots = this.snapshots.filter((snapshot) => snapshot.trackedKeywordId !== id);
     return true;
+  }
+
+  async exploreKeywords(input: ExploreKeywordsInput): Promise<KeywordExplorerResponse> {
+    const selectedApp = this.getAppForExplorer(input.appId);
+    const catalogApps = await this.getApps();
+
+    return buildKeywordExplorerResponse({
+      selectedApp,
+      input,
+      catalogApps,
+    });
   }
 
   async getDashboard(): Promise<DashboardResponse> {
@@ -439,6 +505,30 @@ class MemoryStorage implements IStorage {
     return created;
   }
 
+  private async assertKeywordNotTracked(input: CreateKeywordInput) {
+    const normalizedTerm = normalizeKeywordTerm(input.term);
+    const exists = this.trackedKeywords.some(
+      (keyword) =>
+        keyword.appId === input.appId &&
+        keyword.country === input.country &&
+        keyword.language === input.language &&
+        normalizeKeywordTerm(keyword.term) === normalizedTerm,
+    );
+
+    if (exists) {
+      throw new Error("This keyword is already tracked for the selected app and market.");
+    }
+  }
+
+  private getAppForExplorer(appId: number) {
+    const app = this.apps.find((entry) => entry.id === appId);
+    if (!app) {
+      throw new Error("Select a valid app to explore keywords.");
+    }
+
+    return app;
+  }
+
   private async hydrateKeywords(keywordsToHydrate: TrackedKeyword[]): Promise<KeywordListItem[]> {
     return keywordsToHydrate.map((keyword) => {
       const entries = [...this.snapshots]
@@ -463,3 +553,5 @@ class MemoryStorage implements IStorage {
 }
 
 export const storage: IStorage = hasDatabase ? new DatabaseStorage() : new MemoryStorage();
+
+

@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import AppCatalog from "./pages/AppCatalog";
 import AppDetails from "./pages/AppDetails";
 import KeywordTracking from "./pages/KeywordTracking";
+import KeywordExplorer from "./pages/KeywordExplorer";
 import Reports from "./pages/Reports";
 
 function Router() {
@@ -17,6 +18,7 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/catalog/:id" component={AppDetails} />
       <Route path="/catalog" component={AppCatalog} />
+      <Route path="/keyword-explorer" component={KeywordExplorer} />
       <Route path="/keywords" component={KeywordTracking} />
       <Route path="/reports" component={Reports} />
       <Route component={NotFound} />
@@ -36,3 +38,6 @@ function App() {
 }
 
 export default App;
+
+
+

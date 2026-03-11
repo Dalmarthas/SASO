@@ -214,6 +214,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(data);
   });
 
+  app.get(api.keywords.explore.path, async (req, res) => {
+    try {
+      const input = api.keywords.explore.input.parse({
+        appId: req.query.appId,
+        seed: req.query.seed,
+        country: req.query.country,
+        language: req.query.language,
+        limit: req.query.limit,
+      });
+      const data = await storage.exploreKeywords(input);
+      res.json(data);
+    } catch (error) {
+      return sendValidationError(res, error);
+    }
+  });
+
   app.post(api.keywords.create.path, async (req, res) => {
     try {
       const input = api.keywords.create.input.parse(req.body);
@@ -247,3 +263,4 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   return httpServer;
 }
+
