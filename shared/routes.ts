@@ -1,5 +1,33 @@
-import { z } from 'zod';
-import { insertWorkspaceSchema, workspaces, insertClientSchema, clients, insertAppSchema, apps, insertKeywordSchema, keywords } from './schema';
+import { z } from "zod";
+import { insertAppSchema } from "./schema";
+
+const isoDateSchema = z.string();
+
+export const workspaceSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  createdAt: isoDateSchema,
+});
+
+export const clientSchema = z.object({
+  id: z.number().int(),
+  workspaceId: z.number().int(),
+  name: z.string(),
+  createdAt: isoDateSchema,
+});
+
+export const appSchema = z.object({
+  id: z.number().int(),
+  workspaceId: z.number().int(),
+  clientId: z.number().int().nullable(),
+  store: z.enum(["apple", "google"]),
+  storeId: z.string(),
+  name: z.string(),
+  developer: z.string().nullable(),
+  iconUrl: z.string().nullable(),
+  type: z.enum(["owned", "competitor"]),
+  createdAt: isoDateSchema,
+});
 
 export const errorSchemas = {
   validation: z.object({
@@ -14,53 +42,117 @@ export const errorSchemas = {
   }),
 };
 
+export const keywordListItemSchema = z.object({
+  id: z.number().int(),
+  appId: z.number().int(),
+  term: z.string(),
+  country: z.string(),
+  language: z.string(),
+  currentRank: z.number().int().nullable(),
+  previousRank: z.number().int().nullable(),
+  searchVolume: z.number().int().nullable(),
+  lastCheckedAt: z.string().nullable(),
+});
+
+export const createKeywordInputSchema = z.object({
+  appId: z.number().int().positive(),
+  term: z.string().trim().min(1, "Keyword term is required"),
+  country: z.string().trim().min(2).max(2).default("us").transform((value) => value.toLowerCase()),
+  language: z.string().trim().min(2).max(5).default("en").transform((value) => value.toLowerCase()),
+  currentRank: z.number().int().positive().nullable().optional(),
+  previousRank: z.number().int().positive().nullable().optional(),
+  searchVolume: z.number().int().nonnegative().nullable().optional(),
+});
+
+export const dashboardResponseSchema = z.object({
+  stats: z.object({
+    trackedApps: z.number().int(),
+    activeKeywords: z.number().int(),
+    averageRank: z.number().nullable(),
+    totalVolume: z.number().int(),
+  }),
+  rankHistory: z.array(
+    z.object({
+      label: z.string(),
+      averageRank: z.number().nullable(),
+    }),
+  ),
+});
+
+export type KeywordListItem = z.infer<typeof keywordListItemSchema>;
+export type CreateKeywordInput = z.infer<typeof createKeywordInputSchema>;
+export type DashboardResponse = z.infer<typeof dashboardResponseSchema>;
+
 export const api = {
   workspaces: {
     list: {
-      method: 'GET' as const,
-      path: '/api/workspaces' as const,
-      responses: { 200: z.array(z.custom<typeof workspaces.$inferSelect>()) },
+      method: "GET" as const,
+      path: "/api/workspaces" as const,
+      responses: { 200: z.array(workspaceSchema) },
     },
   },
   clients: {
     list: {
-      method: 'GET' as const,
-      path: '/api/clients' as const,
-      responses: { 200: z.array(z.custom<typeof clients.$inferSelect>()) },
+      method: "GET" as const,
+      path: "/api/clients" as const,
+      responses: { 200: z.array(clientSchema) },
     },
   },
   apps: {
     list: {
-      method: 'GET' as const,
-      path: '/api/apps' as const,
-      responses: { 200: z.array(z.custom<typeof apps.$inferSelect>()) },
+      method: "GET" as const,
+      path: "/api/apps" as const,
+      responses: { 200: z.array(appSchema) },
     },
     create: {
-      method: 'POST' as const,
-      path: '/api/apps' as const,
+      method: "POST" as const,
+      path: "/api/apps" as const,
       input: insertAppSchema,
       responses: {
-        201: z.custom<typeof apps.$inferSelect>(),
+        201: appSchema,
         400: errorSchemas.validation,
+      },
+    },
+    delete: {
+      method: "DELETE" as const,
+      path: "/api/apps/:id" as const,
+      responses: {
+        204: z.undefined(),
+        404: errorSchemas.notFound,
       },
     },
   },
   keywords: {
     list: {
-      method: 'GET' as const,
-      path: '/api/keywords' as const,
-      responses: { 200: z.array(z.custom<typeof keywords.$inferSelect>()) },
+      method: "GET" as const,
+      path: "/api/keywords" as const,
+      responses: { 200: z.array(keywordListItemSchema) },
     },
     create: {
-      method: 'POST' as const,
-      path: '/api/keywords' as const,
-      input: insertKeywordSchema,
+      method: "POST" as const,
+      path: "/api/keywords" as const,
+      input: createKeywordInputSchema,
       responses: {
-        201: z.custom<typeof keywords.$inferSelect>(),
+        201: keywordListItemSchema,
         400: errorSchemas.validation,
       },
     },
-  }
+    delete: {
+      method: "DELETE" as const,
+      path: "/api/keywords/:id" as const,
+      responses: {
+        204: z.undefined(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+  dashboard: {
+    summary: {
+      method: "GET" as const,
+      path: "/api/dashboard" as const,
+      responses: { 200: dashboardResponseSchema },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {

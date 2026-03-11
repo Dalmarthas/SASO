@@ -17,26 +17,27 @@ export default function KeywordTracking() {
   const createKeyword = useCreateKeyword();
   const deleteKeyword = useDeleteKeyword();
   const { toast } = useToast();
-  
+
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredKeywords = keywords.filter(kw => 
-    kw.term.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredKeywords = keywords.filter((keyword) =>
+    keyword.term.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    
+
     try {
       await createKeyword.mutateAsync({
-        appId: parseInt(formData.get("appId") as string),
+        appId: Number.parseInt(formData.get("appId") as string, 10),
         term: formData.get("term") as string,
-        currentRank: parseInt(formData.get("currentRank") as string) || null,
-        previousRank: parseInt(formData.get("previousRank") as string) || null,
-        searchVolume: parseInt(formData.get("searchVolume") as string) || null,
+        currentRank: Number.parseInt(formData.get("currentRank") as string, 10) || null,
+        previousRank: Number.parseInt(formData.get("previousRank") as string, 10) || null,
+        searchVolume: Number.parseInt(formData.get("searchVolume") as string, 10) || null,
         country: formData.get("country") as string,
+        language: "en",
       });
       setIsOpen(false);
       toast({ title: "Success", description: "Keyword tracking added." });
@@ -46,11 +47,36 @@ export default function KeywordTracking() {
   };
 
   const renderRankChange = (current?: number | null, prev?: number | null) => {
-    if (!current || !prev) return <span className="text-muted-foreground flex items-center gap-1"><Minus className="w-4 h-4"/> N/A</span>;
-    const diff = prev - current; // Lower is better
-    if (diff > 0) return <span className="text-emerald-500 font-medium flex items-center gap-1"><ArrowUpRight className="w-4 h-4"/> +{diff}</span>;
-    if (diff < 0) return <span className="text-red-500 font-medium flex items-center gap-1"><ArrowDownRight className="w-4 h-4"/> {diff}</span>;
-    return <span className="text-muted-foreground font-medium flex items-center gap-1"><Minus className="w-4 h-4"/> 0</span>;
+    if (!current || !prev) {
+      return (
+        <span className="text-muted-foreground flex items-center gap-1">
+          <Minus className="w-4 h-4" /> N/A
+        </span>
+      );
+    }
+
+    const diff = prev - current;
+    if (diff > 0) {
+      return (
+        <span className="text-emerald-500 font-medium flex items-center gap-1">
+          <ArrowUpRight className="w-4 h-4" /> +{diff}
+        </span>
+      );
+    }
+
+    if (diff < 0) {
+      return (
+        <span className="text-red-500 font-medium flex items-center gap-1">
+          <ArrowDownRight className="w-4 h-4" /> {diff}
+        </span>
+      );
+    }
+
+    return (
+      <span className="text-muted-foreground font-medium flex items-center gap-1">
+        <Minus className="w-4 h-4" /> 0
+      </span>
+    );
   };
 
   return (
@@ -61,7 +87,7 @@ export default function KeywordTracking() {
             <h2 className="text-3xl font-display font-bold">Keyword Tracking</h2>
             <p className="text-muted-foreground mt-1 text-lg">Monitor visibility across app stores.</p>
           </div>
-          
+
           <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
               <Button className="rounded-xl shadow-lg shadow-primary/20">
@@ -77,7 +103,7 @@ export default function KeywordTracking() {
                   <Label htmlFor="term">Keyword Term</Label>
                   <Input id="term" name="term" required className="rounded-xl bg-muted/30" placeholder="e.g. meditation app" />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="appId">Target App</Label>
                   <Select name="appId" required>
@@ -85,7 +111,7 @@ export default function KeywordTracking() {
                       <SelectValue placeholder="Select app to track" />
                     </SelectTrigger>
                     <SelectContent>
-                      {apps.map(app => (
+                      {apps.map((app) => (
                         <SelectItem key={app.id} value={app.id.toString()}>{app.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -124,17 +150,17 @@ export default function KeywordTracking() {
           <div className="p-4 border-b border-border/40 flex items-center gap-4 bg-muted/10">
             <div className="relative flex-1 max-w-sm">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input 
+              <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter keywords..." 
+                placeholder="Filter keywords..."
                 className="pl-9 bg-background border-border/50 rounded-xl"
               />
             </div>
           </div>
 
           {isLoading ? (
-             <div className="flex h-40 items-center justify-center">
+            <div className="flex h-40 items-center justify-center">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : filteredKeywords.length === 0 ? (
@@ -157,32 +183,34 @@ export default function KeywordTracking() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredKeywords.map(kw => {
-                    const app = apps.find(a => a.id === kw.appId);
+                  {filteredKeywords.map((keyword) => {
+                    const app = apps.find((entry) => entry.id === keyword.appId);
                     return (
-                      <TableRow key={kw.id} className="table-row-hover border-border/30">
-                        <TableCell className="font-medium">{kw.term}</TableCell>
+                      <TableRow key={keyword.id} className="table-row-hover border-border/30">
+                        <TableCell className="font-medium">{keyword.term}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             {app?.iconUrl && <img src={app.iconUrl} className="w-6 h-6 rounded-md object-cover" alt="" />}
-                            <span className="text-muted-foreground">{app?.name || 'Unknown App'}</span>
+                            <span className="text-muted-foreground">{app?.name || "Unknown App"}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right text-muted-foreground font-mono">{kw.searchVolume?.toLocaleString() || '-'}</TableCell>
-                        <TableCell className="text-right text-muted-foreground font-mono">{kw.previousRank || '-'}</TableCell>
-                        <TableCell className="text-right font-semibold font-mono">{kw.currentRank || '-'}</TableCell>
+                        <TableCell className="text-right text-muted-foreground font-mono">{keyword.searchVolume?.toLocaleString() || "-"}</TableCell>
+                        <TableCell className="text-right text-muted-foreground font-mono">{keyword.previousRank || "-"}</TableCell>
+                        <TableCell className="text-right font-semibold font-mono">{keyword.currentRank || "-"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end">
-                            {renderRankChange(kw.currentRank, kw.previousRank)}
+                            {renderRankChange(keyword.currentRank, keyword.previousRank)}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg"
                             onClick={() => {
-                              if(confirm("Stop tracking this keyword?")) deleteKeyword.mutate(kw.id);
+                              if (confirm("Stop tracking this keyword?")) {
+                                deleteKeyword.mutate(keyword.id);
+                              }
                             }}
                           >
                             <Trash2 className="w-4 h-4" />
