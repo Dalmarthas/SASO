@@ -1,4 +1,4 @@
-import { createContext, runInContext } from "node:vm";
+﻿import { createContext, runInContext } from "node:vm";
 
 import type { InsertApp } from "@shared/schema";
 import type { ImportAppFromUrlInput } from "@shared/routes";
@@ -121,12 +121,14 @@ function unique(values: Array<string | null | undefined>): string[] {
   return items;
 }
 
-function parseMetaContent(html: string, name: string): string | null {
+function parseMetaContentByAttribute(
+  html: string,
+  attribute: "property" | "name" | "itemprop",
+  value: string,
+): string | null {
   const patterns = [
-    new RegExp(`<meta[^>]+property=["']${escapeRegExp(name)}["'][^>]+content=["']([^"']+)["']`, "i"),
-    new RegExp(`<meta[^>]+name=["']${escapeRegExp(name)}["'][^>]+content=["']([^"']+)["']`, "i"),
-    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${escapeRegExp(name)}["']`, "i"),
-    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+name=["']${escapeRegExp(name)}["']`, "i"),
+    new RegExp(`<meta[^>]+${attribute}=["']${escapeRegExp(value)}["'][^>]+content=["']([^"']+)["']`, "i"),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+${attribute}=["']${escapeRegExp(value)}["']`, "i"),
   ];
 
   for (const pattern of patterns) {
@@ -137,6 +139,39 @@ function parseMetaContent(html: string, name: string): string | null {
   }
 
   return null;
+}
+
+function parseMetaContent(html: string, name: string): string | null {
+  return parseMetaContentByAttribute(html, "property", name)
+    ?? parseMetaContentByAttribute(html, "name", name)
+    ?? parseMetaContentByAttribute(html, "itemprop", name);
+}
+
+async function fetchStorePageHtml(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": BROWSER_USER_AGENT,
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return Buffer.from(await response.arrayBuffer()).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+function extractAppleSubtitle(html: string | null | undefined): string | null {
+  if (!html) return null;
+
+  const match = html.match(/<h2[^>]*class=["'][^"']*subtitle[^"']*["'][^>]*>([\s\S]*?)<\/h2>/i);
+  return stripHtml(match?.[1] ?? null);
 }
 
 function extractJsonLd(html: string): GoogleJsonLd | null {
@@ -237,6 +272,20 @@ function collectStrings(value: unknown, output: string[] = []): string[] {
   return output;
 }
 
+function extractLongestReadableText(value: unknown, minimumLength: number): string | null {
+  const candidates = collectStrings(value)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length >= minimumLength)
+    .filter((entry) => /[a-z]{3}/i.test(entry))
+    .filter((entry) => !/^[A-Za-z0-9+/=_:-]+$/.test(entry))
+    .map((entry) => stripHtml(entry))
+    .filter((entry): entry is string => entry !== null)
+    .filter((entry) => entry.length >= minimumLength)
+    .sort((left, right) => right.length - left.length);
+
+  return candidates[0] ?? null;
+}
+
 function extractGoogleDetailsData(html: string): unknown[] | null {
   const chunks = extractGoogleInitDataChunks(html);
   const ds5 = chunks["ds:5"];
@@ -245,19 +294,43 @@ function extractGoogleDetailsData(html: string): unknown[] | null {
 }
 
 function extractGoogleLongDescriptionFromDetails(detailsData: unknown[] | null): string | null {
-  const directDescription = stripHtml(getStringAtPath(detailsData, [12, 0, 0, 1]));
-  if (directDescription) {
-    return directDescription;
+  for (const path of [[72, 0, 1], [12, 0, 0, 1]]) {
+    const description = stripHtml(getStringAtPath(detailsData, path));
+    if (description) {
+      return description;
+    }
   }
 
-  const descriptionSection = getValueAtPath(detailsData, [12]);
-  const candidates = collectStrings(descriptionSection)
-    .map((entry) => stripHtml(entry))
-    .filter((entry): entry is string => Boolean(entry))
-    .filter((entry) => entry.length > 240)
-    .sort((left, right) => right.length - left.length);
+  for (const path of [[72], [12], []]) {
+    const section = path.length === 0 ? detailsData : getValueAtPath(detailsData, path);
+    const candidate = extractLongestReadableText(section, 240);
+    if (candidate) {
+      return candidate;
+    }
+  }
 
-  return candidates[0] ?? null;
+  return null;
+}
+
+function extractGoogleShortDescriptionFromDetails(detailsData: unknown[] | null): string | null {
+  for (const path of [[73, 0, 1], [73, 0, 0, 1]]) {
+    const description = stripHtml(getStringAtPath(detailsData, path));
+    if (description) {
+      return description;
+    }
+  }
+
+  return extractLongestReadableText(getValueAtPath(detailsData, [73]), 4);
+}
+
+function extractGoogleMetaShortDescription(html: string, jsonLd: GoogleJsonLd | null): string | null {
+  return stripHtml(
+    parseMetaContentByAttribute(html, "property", "og:description")
+      ?? parseMetaContentByAttribute(html, "itemprop", "description")
+      ?? parseMetaContentByAttribute(html, "name", "description")
+      ?? jsonLd?.description
+      ?? null,
+  );
 }
 
 function extractGoogleIconFromDetails(detailsData: unknown[] | null): string | null {
@@ -364,15 +437,18 @@ async function fetchAppleMetadata(target: ParsedStoreUrl): Promise<ImportedMetad
   lookupUrl.searchParams.set("id", target.storeId);
   lookupUrl.searchParams.set("country", (target.country ?? "us").toLowerCase());
 
-  const response = await fetch(lookupUrl, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": BROWSER_USER_AGENT,
-    },
-  });
+  const [response, storePageHtml] = await Promise.all([
+    fetch(lookupUrl, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": BROWSER_USER_AGENT,
+      },
+    }),
+    fetchStorePageHtml(target.canonicalUrl),
+  ]);
 
   if (!response.ok) {
-    throw new Error(`App Store lookup failed with status ${response.status}.`);
+    throw new Error("App Store lookup failed with status " + response.status + ".");
   }
 
   const payload = await response.json() as { resultCount?: number; results?: Array<Record<string, unknown>> };
@@ -383,6 +459,7 @@ async function fetchAppleMetadata(target: ParsedStoreUrl): Promise<ImportedMetad
   }
 
   const description = stripHtml(typeof item.description === "string" ? item.description : null);
+  const subtitle = extractAppleSubtitle(storePageHtml);
 
   return {
     store: "apple",
@@ -391,7 +468,7 @@ async function fetchAppleMetadata(target: ParsedStoreUrl): Promise<ImportedMetad
     developer: typeof item.sellerName === "string" ? item.sellerName : typeof item.artistName === "string" ? item.artistName : null,
     iconUrl: typeof item.artworkUrl512 === "string" ? item.artworkUrl512 : typeof item.artworkUrl100 === "string" ? item.artworkUrl100 : null,
     storeUrl: typeof item.trackViewUrl === "string" ? item.trackViewUrl : target.canonicalUrl,
-    summary: normalizeSummary(description),
+    summary: subtitle ?? normalizeSummary(description),
     description,
     rating: toNullableNumber(item.averageUserRating ?? item.averageUserRatingForCurrentVersion),
     ratingCount: toNullableInteger(item.userRatingCount ?? item.userRatingCountForCurrentVersion),
@@ -425,7 +502,7 @@ async function fetchGoogleMetadata(target: ParsedStoreUrl): Promise<ImportedMeta
     throw new Error(`Google Play fetch failed with status ${response.status}.`);
   }
 
-  const html = await response.text();
+  const html = Buffer.from(await response.arrayBuffer()).toString("utf8");
   const jsonLd = extractJsonLd(html);
 
   if (!jsonLd) {
@@ -434,12 +511,14 @@ async function fetchGoogleMetadata(target: ParsedStoreUrl): Promise<ImportedMeta
 
   const detailsData = extractGoogleDetailsData(html);
   const metaTitle = parseMetaContent(html, "og:title");
-  const metaDescription = parseMetaContent(html, "og:description") ?? parseMetaContent(html, "description");
   const metaImage = parseMetaContent(html, "og:image");
   const metaUrl = parseMetaContent(html, "og:url");
   const developer = jsonLd.author?.name?.trim() || getStringAtPath(detailsData, [37, 0]) || null;
+  const metaShortDescription = extractGoogleMetaShortDescription(html, jsonLd);
+  const structuredShortDescription = extractGoogleShortDescriptionFromDetails(detailsData);
+  const shortDescription = metaShortDescription ?? structuredShortDescription;
   const longDescription = extractGoogleLongDescription(html, target.storeId, detailsData, developer);
-  const description = longDescription ?? stripHtml(jsonLd.description) ?? stripHtml(metaDescription);
+  const description = longDescription ?? shortDescription;
   const iconUrl = extractGoogleIconFromDetails(detailsData) ?? (typeof jsonLd.image === "string" ? jsonLd.image : metaImage);
 
   return {
@@ -449,7 +528,7 @@ async function fetchGoogleMetadata(target: ParsedStoreUrl): Promise<ImportedMeta
     developer,
     iconUrl,
     storeUrl: decodeHtmlEntities(metaUrl ?? jsonLd.url ?? detailsUrl.toString()),
-    summary: normalizeSummary(metaDescription ?? jsonLd.description),
+    summary: shortDescription ?? normalizeSummary(description),
     description,
     rating: toNullableNumber(jsonLd.aggregateRating?.ratingValue),
     ratingCount: toNullableInteger(jsonLd.aggregateRating?.ratingCount),
@@ -471,3 +550,5 @@ export async function importAppFromStoreUrl(input: ImportAppFromUrlInput): Promi
     ...metadata,
   };
 }
+
+
