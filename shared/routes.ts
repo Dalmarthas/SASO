@@ -76,7 +76,7 @@ export const exploreKeywordsInputSchema = z.object({
   seed: z.string().trim().min(2, "Enter at least 2 characters to explore keywords"),
   country: z.string().trim().min(2).max(2).default("us").transform((value) => value.toLowerCase()),
   language: z.string().trim().min(2).max(5).default("en").transform((value) => value.toLowerCase()),
-  limit: z.coerce.number().int().min(6).max(36).default(18),
+  limit: z.coerce.number().int().min(6).max(100).default(25),
 });
 
 export const keywordExplorerResultSchema = z.object({
@@ -102,6 +102,7 @@ export const keywordExplorerResponseSchema = z.object({
   seed: z.string(),
   country: z.string(),
   language: z.string(),
+  requestedLimit: z.number().int().positive(),
   generatedAt: z.string(),
   selectedAppFound: z.boolean(),
   selectedAppResultPosition: z.number().int().positive().nullable(),
@@ -239,3 +240,5 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
   }
   return url;
 }
+
+

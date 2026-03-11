@@ -37,7 +37,7 @@ type ExplorerResult = z.infer<typeof api.keywords.explore.responses[200]>["resul
 
 const DEFAULT_COUNTRY = "us";
 const DEFAULT_LANGUAGE = "en";
-const DEFAULT_LIMIT = "18";
+const DEFAULT_LIMIT = "25";
 
 function dedupe(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
@@ -188,7 +188,7 @@ export default function KeywordExplorer() {
                   <span className="text-sm font-medium">Current position</span>
                 </div>
                 <p className="mt-3 text-xl font-display font-bold text-white">
-                  {selectedResult ? `#${selectedResult.position}` : data ? `Not in top ${data.results.length}` : "Waiting for search"}
+                  {selectedResult ? `#${selectedResult.position}` : data ? `Not in ${data.results.length} returned` : "Waiting for search"}
                 </p>
               </div>
             </div>
@@ -314,7 +314,7 @@ export default function KeywordExplorer() {
                 <CardContent className="flex items-start gap-3 p-5 text-sm text-amber-700">
                   <AlertTriangle className="mt-0.5 h-5 w-5" />
                   <div>
-                    <p className="font-semibold">{data.selectedAppName} is not in the top {data.results.length} results for this keyword.</p>
+                    <p className="font-semibold">{data.selectedAppName} is not in the {data.results.length} returned results for this keyword.</p>
                     <p className="mt-1">The table still shows the live top-ranking apps for {data.store === "apple" ? "the App Store" : "Google Play"}.</p>
                   </div>
                 </CardContent>
@@ -327,11 +327,11 @@ export default function KeywordExplorer() {
                   <div>
                     <CardTitle className="text-xl">Top apps for "{data.seed}"</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {data.store === "apple" ? "App Store" : "Google Play"} results in {data.country.toUpperCase()} / {data.language}
+                      {data.store === "apple" ? "App Store" : "Google Play"} results in {data.country.toUpperCase()} / {data.language} · showing {data.results.length} of requested {data.requestedLimit}
                     </p>
                   </div>
                   <Badge variant="outline" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
-                    {data.results.length} results
+                    {data.results.length} / {data.requestedLimit} shown
                   </Badge>
                 </div>
               </CardHeader>
@@ -429,3 +429,4 @@ export default function KeywordExplorer() {
     </AppLayout>
   );
 }
+

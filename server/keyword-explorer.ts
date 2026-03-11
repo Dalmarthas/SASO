@@ -257,9 +257,12 @@ export async function buildKeywordExplorerResponse(args: {
     seed: input.seed.trim(),
     country: input.country,
     language: input.language,
+    requestedLimit: input.limit,
     generatedAt: new Date().toISOString(),
     selectedAppFound: Boolean(selectedResult),
     selectedAppResultPosition: selectedResult?.position ?? null,
     results,
   };
 }
+
+
