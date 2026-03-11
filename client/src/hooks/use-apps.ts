@@ -36,6 +36,7 @@ function invalidateAppQueries(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: [api.apps.list.path] });
   queryClient.invalidateQueries({ queryKey: [api.dashboard.summary.path] });
   queryClient.invalidateQueries({ queryKey: [api.keywords.list.path] });
+  queryClient.invalidateQueries({ queryKey: [api.keywords.explore.path] });
 }
 
 export function useCreateApp() {
@@ -99,6 +100,11 @@ export function useImportApp() {
       }
     },
     onSuccess: () => invalidateAppQueries(queryClient),
+    onError: (error) => {
+      if (error instanceof Error && /already in your catalog/i.test(error.message)) {
+        invalidateAppQueries(queryClient);
+      }
+    },
   });
 }
 

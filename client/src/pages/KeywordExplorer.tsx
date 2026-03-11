@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useApps } from "@/hooks/use-apps";
+import { useApps, useImportApp } from "@/hooks/use-apps";
 import { useExploreKeywords, useKeywords } from "@/hooks/use-keywords";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useToast } from "@/hooks/use-toast";
 import {
   AlertTriangle,
   ArrowRight,
@@ -76,7 +77,9 @@ function resultRowClass(result: ExplorerResult) {
 export default function KeywordExplorer() {
   const [, navigate] = useLocation();
   const { data: apps = [], isLoading: appsLoading } = useApps();
+  const importApp = useImportApp();
   const { data: keywords = [], isLoading: keywordsLoading } = useKeywords();
+  const { toast } = useToast();
 
   const [form, setForm] = useState<ExplorerFormState>({
     appId: "",
@@ -86,6 +89,7 @@ export default function KeywordExplorer() {
     limit: DEFAULT_LIMIT,
   });
   const [request, setRequest] = useState<z.infer<typeof api.keywords.explore.input> | null>(null);
+  const [addingStoreId, setAddingStoreId] = useState<string | null>(null);
 
   useEffect(() => {
     if (apps.length === 0 || form.appId) {
@@ -142,6 +146,50 @@ export default function KeywordExplorer() {
 
   const isBootstrapping = appsLoading || keywordsLoading || (!request && apps.length > 0);
   const selectedResult = data?.results.find((result) => result.isSelectedApp) ?? null;
+
+  const handleAddToCatalog = async (result: ExplorerResult) => {
+    if (!selectedApp) {
+      toast({
+        title: "No app selected",
+        description: "Choose a catalog app before adding search results.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!result.storeUrl) {
+      toast({
+        title: "Store URL missing",
+        description: "This result does not include a store URL, so it cannot be imported yet.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAddingStoreId(result.storeId);
+
+    try {
+      const app = await importApp.mutateAsync({
+        workspaceId: selectedApp.workspaceId,
+        clientId: selectedApp.clientId,
+        type: "competitor",
+        url: result.storeUrl,
+      });
+
+      toast({
+        title: "App added",
+        description: `${app.name} was added to the catalog.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Add failed",
+        description: error instanceof Error ? error.message : "Unable to add this app to the catalog.",
+        variant: "destructive",
+      });
+    } finally {
+      setAddingStoreId(null);
+    }
+  };
 
   return (
     <AppLayout>
@@ -327,7 +375,7 @@ export default function KeywordExplorer() {
                   <div>
                     <CardTitle className="text-xl">Top apps for "{data.seed}"</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {data.store === "apple" ? "App Store" : "Google Play"} results in {data.country.toUpperCase()} / {data.language} · showing {data.results.length} of requested {data.requestedLimit}
+                      {data.store === "apple" ? "App Store" : "Google Play"} results in {data.country.toUpperCase()} / {data.language} - showing {data.results.length} of requested {data.requestedLimit}
                     </p>
                   </div>
                   <Badge variant="outline" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
@@ -397,11 +445,25 @@ export default function KeywordExplorer() {
                             </TableCell>
                             <TableCell>
                               {result.inCatalogType ? (
-                                <Badge className={result.inCatalogType === "owned" ? "bg-primary text-primary-foreground hover:bg-primary" : "bg-accent text-accent-foreground hover:bg-accent"}>
-                                  {result.inCatalogType === "owned" ? "Owned" : "Competitor"}
+                                <Badge className="bg-primary/10 text-primary hover:bg-primary/10">
+                                  Added
                                 </Badge>
                               ) : (
-                                <span className="text-sm text-muted-foreground">Not in catalog</span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="rounded-xl"
+                                  disabled={importApp.isPending}
+                                  onClick={() => {
+                                    void handleAddToCatalog(result);
+                                  }}
+                                >
+                                  {importApp.isPending && addingStoreId === result.storeId ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : null}
+                                  Add
+                                </Button>
                               )}
                             </TableCell>
                             <TableCell className="text-right">
@@ -429,4 +491,3 @@ export default function KeywordExplorer() {
     </AppLayout>
   );
 }
-
