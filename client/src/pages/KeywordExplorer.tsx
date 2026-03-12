@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useApps, useImportApp } from "@/hooks/use-apps";
+import { useImportApp } from "@/hooks/use-apps";
+import { useWorkspaces } from "@/hooks/use-workspaces";
 import { useExploreKeywords, useKeywords } from "@/hooks/use-keywords";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,51 +15,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import {
-  AlertTriangle,
   ArrowRight,
   Compass,
   ExternalLink,
   Loader2,
   Search,
   Sparkles,
-  Trophy,
+  Store,
 } from "lucide-react";
 
+type ExplorerStore = z.infer<typeof api.keywords.explore.input>["store"];
 type ExplorerFormState = {
-  appId: string;
+  store: ExplorerStore;
   seed: string;
   country: string;
   language: string;
   limit: string;
 };
 
-type ExplorerApp = z.infer<typeof api.apps.list.responses[200]>[number];
-type ExplorerKeyword = z.infer<typeof api.keywords.list.responses[200]>[number];
 type ExplorerResult = z.infer<typeof api.keywords.explore.responses[200]>["results"][number];
 
+const DEFAULT_STORE: ExplorerStore = "apple";
 const DEFAULT_COUNTRY = "us";
 const DEFAULT_LANGUAGE = "en";
 const DEFAULT_LIMIT = "25";
 
 function dedupe(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
-}
-
-function getDefaultSeed(app: ExplorerApp | undefined, keywords: ExplorerKeyword[]) {
-  if (!app) {
-    return "";
-  }
-
-  const trackedKeyword = keywords.find((keyword) => keyword.appId === app.id)?.term;
-  if (trackedKeyword) {
-    return trackedKeyword;
-  }
-
-  if (app.primaryCategory) {
-    return app.primaryCategory.toLowerCase();
-  }
-
-  return app.name.toLowerCase();
 }
 
 function formatRating(value: number | null) {
@@ -70,19 +53,35 @@ function formatCount(value: number | null) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function getStoreLabel(store: ExplorerStore) {
+  return store === "apple" ? "App Store" : "Google Play";
+}
+
+function getCatalogLabel(result: ExplorerResult) {
+  if (result.inCatalogType === "owned") {
+    return "Owned app";
+  }
+
+  if (result.inCatalogType === "competitor") {
+    return "In library";
+  }
+
+  return null;
+}
+
 function resultRowClass(result: ExplorerResult) {
-  return result.isSelectedApp ? "bg-primary/5 ring-1 ring-inset ring-primary/25" : "";
+  return result.isLibraryApp ? "bg-primary/5 ring-1 ring-inset ring-primary/25" : "";
 }
 
 export default function KeywordExplorer() {
   const [, navigate] = useLocation();
-  const { data: apps = [], isLoading: appsLoading } = useApps();
   const importApp = useImportApp();
-  const { data: keywords = [], isLoading: keywordsLoading } = useKeywords();
+  const { data: workspaces = [], isLoading: workspacesLoading } = useWorkspaces();
+  const { data: keywords = [] } = useKeywords();
   const { toast } = useToast();
 
   const [form, setForm] = useState<ExplorerFormState>({
-    appId: "",
+    store: DEFAULT_STORE,
     seed: "",
     country: DEFAULT_COUNTRY,
     language: DEFAULT_LANGUAGE,
@@ -91,51 +90,14 @@ export default function KeywordExplorer() {
   const [request, setRequest] = useState<z.infer<typeof api.keywords.explore.input> | null>(null);
   const [addingStoreId, setAddingStoreId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (apps.length === 0 || form.appId) {
-      return;
-    }
-
-    const firstApp = apps[0];
-    const seed = getDefaultSeed(firstApp, keywords);
-    setForm({
-      appId: firstApp.id.toString(),
-      seed,
-      country: DEFAULT_COUNTRY,
-      language: DEFAULT_LANGUAGE,
-      limit: DEFAULT_LIMIT,
-    });
-    setRequest({
-      appId: firstApp.id,
-      seed,
-      country: DEFAULT_COUNTRY,
-      language: DEFAULT_LANGUAGE,
-      limit: Number(DEFAULT_LIMIT),
-    });
-  }, [apps, form.appId, keywords]);
-
   const { data, isLoading: isExplorerLoading, isFetching, error } = useExploreKeywords(request);
 
-  const selectedApp = useMemo(
-    () => apps.find((app) => app.id === Number.parseInt(form.appId || "0", 10)) ?? null,
-    [apps, form.appId],
-  );
-
-  const quickSeeds = useMemo(() => {
-    if (!selectedApp) {
-      return [];
-    }
-
-    return dedupe([
-      ...keywords.filter((keyword) => keyword.appId === selectedApp.id).map((keyword) => keyword.term),
-      selectedApp.primaryCategory?.toLowerCase() ?? "",
-      selectedApp.name.toLowerCase(),
-    ]).slice(0, 5);
-  }, [keywords, selectedApp]);
+  const defaultWorkspace = workspaces[0] ?? null;
+  const quickSeeds = useMemo(() => dedupe(keywords.map((keyword) => keyword.term)).slice(0, 5), [keywords]);
 
   const runExplore = (nextForm: ExplorerFormState) => {
     const validated = api.keywords.explore.input.parse({
-      appId: Number.parseInt(nextForm.appId, 10),
+      store: nextForm.store,
       seed: nextForm.seed,
       country: nextForm.country,
       language: nextForm.language,
@@ -144,14 +106,11 @@ export default function KeywordExplorer() {
     setRequest(validated);
   };
 
-  const isBootstrapping = appsLoading || keywordsLoading || (!request && apps.length > 0);
-  const selectedResult = data?.results.find((result) => result.isSelectedApp) ?? null;
-
   const handleAddToCatalog = async (result: ExplorerResult) => {
-    if (!selectedApp) {
+    if (!defaultWorkspace) {
       toast({
-        title: "No app selected",
-        description: "Choose a catalog app before adding search results.",
+        title: "No workspace available",
+        description: "Create a workspace before importing apps from keyword explorer.",
         variant: "destructive",
       });
       return;
@@ -170,20 +129,19 @@ export default function KeywordExplorer() {
 
     try {
       const app = await importApp.mutateAsync({
-        workspaceId: selectedApp.workspaceId,
-        clientId: selectedApp.clientId,
+        workspaceId: defaultWorkspace.id,
         type: "competitor",
         url: result.storeUrl,
       });
 
       toast({
         title: "App added",
-        description: `${app.name} was added to the catalog.`,
+        description: `${app.name} was added to ${defaultWorkspace.name}.`,
       });
-    } catch (error) {
+    } catch (addError) {
       toast({
         title: "Add failed",
-        description: error instanceof Error ? error.message : "Unable to add this app to the catalog.",
+        description: addError instanceof Error ? addError.message : "Unable to add this app to the library.",
         variant: "destructive",
       });
     } finally {
@@ -198,7 +156,7 @@ export default function KeywordExplorer() {
           <div>
             <h2 className="text-3xl font-display font-bold">Keyword Explorer</h2>
             <p className="mt-1 text-lg text-muted-foreground">
-              Search a live keyword and inspect which apps own the top positions for that market.
+              Search any keyword in the store you care about and see which apps already own the results.
             </p>
           </div>
           <Button variant="outline" className="rounded-xl" onClick={() => navigate("/keywords")}>
@@ -214,10 +172,10 @@ export default function KeywordExplorer() {
               </Badge>
               <div className="space-y-3">
                 <h3 className="max-w-2xl text-3xl font-display font-bold leading-tight text-white md:text-4xl">
-                  See the ranked apps for a keyword and spot exactly where your app shows up.
+                  Search the App Store or Google Play without attaching the query to a specific app.
                 </h3>
                 <p className="max-w-2xl text-sm leading-7 text-white/75 md:text-base">
-                  The result list comes from live store search results, and your selected app is highlighted if it appears in the top positions.
+                  Pick a store, locale, and language. Results come from live store search and any app already in your library is highlighted automatically.
                 </p>
               </div>
             </div>
@@ -225,18 +183,18 @@ export default function KeywordExplorer() {
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-1">
               <div className="rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
                 <div className="flex items-center gap-3 text-white/80">
-                  <Compass className="h-5 w-5" />
-                  <span className="text-sm font-medium">Selected app</span>
+                  <Store className="h-5 w-5" />
+                  <span className="text-sm font-medium">Store</span>
                 </div>
-                <p className="mt-3 text-xl font-display font-bold text-white">{selectedApp?.name ?? "Choose an app"}</p>
+                <p className="mt-3 text-xl font-display font-bold text-white">{getStoreLabel(form.store)}</p>
               </div>
               <div className="rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
                 <div className="flex items-center gap-3 text-white/80">
-                  <Trophy className="h-5 w-5" />
-                  <span className="text-sm font-medium">Current position</span>
+                  <Compass className="h-5 w-5" />
+                  <span className="text-sm font-medium">Library hits</span>
                 </div>
                 <p className="mt-3 text-xl font-display font-bold text-white">
-                  {selectedResult ? `#${selectedResult.position}` : data ? `Not in ${data.results.length} returned` : "Waiting for search"}
+                  {data ? `${data.libraryAppCount} matched` : "Waiting for search"}
                 </p>
               </div>
             </div>
@@ -246,24 +204,21 @@ export default function KeywordExplorer() {
         <Card className="rounded-3xl border-border/50 shadow-sm">
           <CardContent className="p-6">
             <form
-              className="grid gap-5 xl:grid-cols-[1.1fr_1.5fr_0.55fr_0.55fr_0.45fr_auto]"
+              className="grid gap-5 xl:grid-cols-[0.9fr_1.5fr_0.55fr_0.55fr_0.45fr_auto]"
               onSubmit={(event) => {
                 event.preventDefault();
                 runExplore(form);
               }}
             >
               <div className="space-y-2">
-                <Label htmlFor="appId">App</Label>
-                <Select value={form.appId} onValueChange={(value) => setForm((current) => ({ ...current, appId: value }))}>
+                <Label htmlFor="store">Store</Label>
+                <Select value={form.store} onValueChange={(value) => setForm((current) => ({ ...current, store: value as ExplorerStore }))}>
                   <SelectTrigger className="rounded-2xl bg-muted/20">
-                    <SelectValue placeholder="Select app" />
+                    <SelectValue placeholder="Select store" />
                   </SelectTrigger>
                   <SelectContent>
-                    {apps.map((app) => (
-                      <SelectItem key={app.id} value={app.id.toString()}>
-                        {app.name}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="apple">App Store</SelectItem>
+                    <SelectItem value="google">Google Play</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -301,7 +256,7 @@ export default function KeywordExplorer() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="country">Country</Label>
+                <Label htmlFor="country">Locale</Label>
                 <Input
                   id="country"
                   value={form.country}
@@ -336,7 +291,7 @@ export default function KeywordExplorer() {
               </div>
 
               <div className="flex items-end">
-                <Button type="submit" className="h-11 w-full rounded-2xl shadow-lg shadow-primary/20 xl:w-auto" disabled={isFetching || isBootstrapping}>
+                <Button type="submit" className="h-11 w-full rounded-2xl shadow-lg shadow-primary/20 xl:w-auto" disabled={isFetching}>
                   {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Compass className="h-4 w-4" />}
                   Explore
                 </Button>
@@ -345,74 +300,57 @@ export default function KeywordExplorer() {
           </CardContent>
         </Card>
 
-        {isBootstrapping ? (
-          <div className="flex h-52 items-center justify-center rounded-3xl border border-border/50 bg-card">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : error ? (
+        {error ? (
           <Card className="rounded-3xl border-destructive/30 bg-destructive/5 shadow-sm">
             <CardContent className="p-6 text-sm text-destructive">
               {error instanceof Error ? error.message : "Unable to load keyword results."}
             </CardContent>
           </Card>
         ) : data ? (
-          <>
-            {!data.selectedAppFound ? (
-              <Card className="rounded-3xl border-amber-500/30 bg-amber-500/5 shadow-sm">
-                <CardContent className="flex items-start gap-3 p-5 text-sm text-amber-700">
-                  <AlertTriangle className="mt-0.5 h-5 w-5" />
-                  <div>
-                    <p className="font-semibold">{data.selectedAppName} is not in the {data.results.length} returned results for this keyword.</p>
-                    <p className="mt-1">The table still shows the live top-ranking apps for {data.store === "apple" ? "the App Store" : "Google Play"}.</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
-
-            <Card className="rounded-3xl border-border/50 shadow-sm">
-              <CardHeader className="border-b border-border/50 bg-muted/10 p-6">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="text-xl">Top apps for "{data.seed}"</CardTitle>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {data.store === "apple" ? "App Store" : "Google Play"} results in {data.country.toUpperCase()} / {data.language} - showing {data.results.length} of requested {data.requestedLimit}
-                    </p>
-                  </div>
-                  <Badge variant="outline" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
-                    {data.results.length} / {data.requestedLimit} shown
-                  </Badge>
+          <Card className="rounded-3xl border-border/50 shadow-sm">
+            <CardHeader className="border-b border-border/50 bg-muted/10 p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-xl">Top {getStoreLabel(data.store)} apps for "{data.seed}"</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {getStoreLabel(data.store)} results in {data.country.toUpperCase()} / {data.language} - showing {data.results.length} of requested {data.requestedLimit}
+                  </p>
                 </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {isExplorerLoading ? (
-                  <div className="flex h-48 items-center justify-center">
-                    <Loader2 className="h-7 w-7 animate-spin text-primary" />
-                  </div>
-                ) : data.results.length === 0 ? (
-                  <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-                    No ranked apps were returned for this search.
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader className="bg-muted/10">
-                        <TableRow className="border-border/40 hover:bg-transparent">
-                          <TableHead className="w-20">Rank</TableHead>
-                          <TableHead>App</TableHead>
-                          <TableHead>Developer</TableHead>
-                          <TableHead className="text-right">Rating</TableHead>
-                          <TableHead>Catalog</TableHead>
-                          <TableHead className="w-[132px] text-right">Store</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.results.map((result) => (
+                <Badge variant="outline" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em]">
+                  {data.libraryAppCount} library hits
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {isExplorerLoading ? (
+                <div className="flex h-48 items-center justify-center">
+                  <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                </div>
+              ) : data.results.length === 0 ? (
+                <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+                  No ranked apps were returned for this search.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-muted/10">
+                      <TableRow className="border-border/40 hover:bg-transparent">
+                        <TableHead className="w-20">Rank</TableHead>
+                        <TableHead>App</TableHead>
+                        <TableHead>Developer</TableHead>
+                        <TableHead className="text-right">Rating</TableHead>
+                        <TableHead>Catalog</TableHead>
+                        <TableHead className="w-[132px] text-right">Store</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.results.map((result) => {
+                        const catalogLabel = getCatalogLabel(result);
+
+                        return (
                           <TableRow key={`${result.storeId}-${result.position}`} className={`border-border/30 ${resultRowClass(result)}`}>
                             <TableCell>
-                              <div className="flex items-center gap-2 font-display text-lg font-bold">
-                                <span>#{result.position}</span>
-                                {result.isSelectedApp ? <Trophy className="h-4 w-4 text-primary" /> : null}
-                              </div>
+                              <div className="font-display text-lg font-bold">#{result.position}</div>
                             </TableCell>
                             <TableCell>
                               <div className="flex items-start gap-3">
@@ -426,9 +364,15 @@ export default function KeywordExplorer() {
                                 <div className="space-y-1">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <p className="font-semibold">{result.name}</p>
-                                    {result.isSelectedApp ? (
-                                      <Badge className="rounded-full bg-primary text-primary-foreground hover:bg-primary">
-                                        Your app
+                                    {catalogLabel ? (
+                                      <Badge
+                                        className={
+                                          result.inCatalogType === "owned"
+                                            ? "rounded-full bg-primary text-primary-foreground hover:bg-primary"
+                                            : "rounded-full bg-primary/10 text-primary hover:bg-primary/10"
+                                        }
+                                      >
+                                        {catalogLabel}
                                       </Badge>
                                     ) : null}
                                   </div>
@@ -444,17 +388,15 @@ export default function KeywordExplorer() {
                               ) : null}
                             </TableCell>
                             <TableCell>
-                              {result.inCatalogType ? (
-                                <Badge className="bg-primary/10 text-primary hover:bg-primary/10">
-                                  Added
-                                </Badge>
+                              {catalogLabel ? (
+                                <Badge className="bg-primary/10 text-primary hover:bg-primary/10">{catalogLabel}</Badge>
                               ) : (
                                 <Button
                                   type="button"
                                   size="sm"
                                   variant="outline"
                                   className="rounded-xl"
-                                  disabled={importApp.isPending}
+                                  disabled={importApp.isPending || workspacesLoading || !defaultWorkspace}
                                   onClick={() => {
                                     void handleAddToCatalog(result);
                                   }}
@@ -478,16 +420,23 @@ export default function KeywordExplorer() {
                               )}
                             </TableCell>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </>
-        ) : null}
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="rounded-3xl border-border/50 shadow-sm">
+            <CardContent className="flex h-48 items-center justify-center text-sm text-muted-foreground">
+              Choose a store, enter a keyword, and run a live search.
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppLayout>
   );
 }
+

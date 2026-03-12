@@ -217,7 +217,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get(api.keywords.explore.path, async (req, res) => {
     try {
       const input = api.keywords.explore.input.parse({
-        appId: req.query.appId,
+        store: req.query.store,
         seed: req.query.seed,
         country: req.query.country,
         language: req.query.language,

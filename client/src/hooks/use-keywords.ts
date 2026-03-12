@@ -22,7 +22,7 @@ function invalidateKeywordQueries(queryClient: ReturnType<typeof useQueryClient>
 
 function buildKeywordExplorerUrl(input: z.infer<typeof api.keywords.explore.input>) {
   const params = new URLSearchParams({
-    appId: input.appId.toString(),
+    store: input.store,
     seed: input.seed,
     country: input.country,
     language: input.language,
@@ -52,7 +52,7 @@ export function useKeywords() {
 
 export function useExploreKeywords(input: z.input<typeof api.keywords.explore.input> | null) {
   const trimmedSeed = input?.seed?.trim() ?? "";
-  const isEnabled = Boolean(input?.appId) && trimmedSeed.length >= 2;
+  const isEnabled = Boolean(input?.store) && trimmedSeed.length >= 2;
 
   return useQuery({
     queryKey: [api.keywords.explore.path, input],

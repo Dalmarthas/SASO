@@ -69,18 +69,22 @@ function toCatalogAppType(value: string | null | undefined): CatalogAppType | nu
   return null;
 }
 
-function withCatalogState(result: Omit<KeywordExplorerResult, "inCatalogAppId" | "inCatalogType" | "isSelectedApp">, selectedApp: App, catalogIndex: Map<string, App>): KeywordExplorerResult {
-  const catalogApp = catalogIndex.get(`${selectedApp.store}:${result.storeId}`) ?? null;
+function withCatalogState(
+  result: Omit<KeywordExplorerResult, "inCatalogAppId" | "inCatalogType" | "isLibraryApp">,
+  store: SupportedStore,
+  catalogIndex: Map<string, App>,
+): KeywordExplorerResult {
+  const catalogApp = catalogIndex.get(`${store}:${result.storeId}`) ?? null;
 
   return {
     ...result,
     inCatalogAppId: catalogApp?.id ?? null,
     inCatalogType: toCatalogAppType(catalogApp?.type),
-    isSelectedApp: result.storeId === selectedApp.storeId,
+    isLibraryApp: Boolean(catalogApp),
   };
 }
 
-async function fetchAppleResults(selectedApp: App, input: ExploreKeywordsInput, catalogIndex: Map<string, App>) {
+async function fetchAppleResults(input: ExploreKeywordsInput, catalogIndex: Map<string, App>) {
   const url = new URL("https://itunes.apple.com/search");
   url.searchParams.set("term", input.seed.trim());
   url.searchParams.set("country", input.country.toLowerCase());
@@ -133,7 +137,7 @@ async function fetchAppleResults(selectedApp: App, input: ExploreKeywordsInput, 
           ratingCount: toNullableInteger(item.userRatingCount ?? item.userRatingCountForCurrentVersion),
           summary: truncate(stripHtml(typeof item.description === "string" ? item.description : null), 180),
         },
-        selectedApp,
+        "apple",
         catalogIndex,
       ),
     );
@@ -151,7 +155,7 @@ function extractMatch(source: string, pattern: RegExp) {
   return match?.[1] ? decodeHtmlEntities(match[1].trim()) : null;
 }
 
-function parseGoogleResultCards(html: string, selectedApp: App, input: ExploreKeywordsInput, catalogIndex: Map<string, App>) {
+function parseGoogleResultCards(html: string, input: ExploreKeywordsInput, catalogIndex: Map<string, App>) {
   // Google Play has no public search API; this parses the server-rendered search cards as a no-key fallback.
   const cardPattern = /<a[^>]+class="Si6A0c Gy4nib"[^>]+href="([^"#]*\/store\/apps\/details\?id=([^"&]+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
   const seen = new Set<string>();
@@ -191,7 +195,7 @@ function parseGoogleResultCards(html: string, selectedApp: App, input: ExploreKe
           ratingCount: null,
           summary: null,
         },
-        selectedApp,
+        "google",
         catalogIndex,
       ),
     );
@@ -204,7 +208,7 @@ function parseGoogleResultCards(html: string, selectedApp: App, input: ExploreKe
   return results;
 }
 
-async function fetchGoogleResults(selectedApp: App, input: ExploreKeywordsInput, catalogIndex: Map<string, App>) {
+async function fetchGoogleResults(input: ExploreKeywordsInput, catalogIndex: Map<string, App>) {
   const url = new URL("https://play.google.com/store/search");
   url.searchParams.set("q", input.seed.trim());
   url.searchParams.set("c", "apps");
@@ -227,7 +231,7 @@ async function fetchGoogleResults(selectedApp: App, input: ExploreKeywordsInput,
   }
 
   const html = await response.text();
-  const results = parseGoogleResultCards(html, selectedApp, input, catalogIndex);
+  const results = parseGoogleResultCards(html, input, catalogIndex);
 
   if (results.length === 0) {
     throw new Error("Google Play returned no parseable app results. The page format may have changed.");
@@ -237,32 +241,25 @@ async function fetchGoogleResults(selectedApp: App, input: ExploreKeywordsInput,
 }
 
 export async function buildKeywordExplorerResponse(args: {
-  selectedApp: App;
   input: ExploreKeywordsInput;
   catalogApps: App[];
 }): Promise<KeywordExplorerResponse> {
-  const { selectedApp, input, catalogApps } = args;
-  const store = toSupportedStore(selectedApp.store);
+  const { input, catalogApps } = args;
+  const store = toSupportedStore(input.store);
   const catalogIndex = buildCatalogIndex(catalogApps);
   const results = store === "apple"
-    ? await fetchAppleResults(selectedApp, input, catalogIndex)
-    : await fetchGoogleResults(selectedApp, input, catalogIndex);
-  const selectedResult = results.find((result) => result.isSelectedApp) ?? null;
+    ? await fetchAppleResults(input, catalogIndex)
+    : await fetchGoogleResults(input, catalogIndex);
 
   return {
-    appId: selectedApp.id,
     store,
-    selectedAppName: selectedApp.name,
-    selectedAppStoreId: selectedApp.storeId,
     seed: input.seed.trim(),
     country: input.country,
     language: input.language,
     requestedLimit: input.limit,
     generatedAt: new Date().toISOString(),
-    selectedAppFound: Boolean(selectedResult),
-    selectedAppResultPosition: selectedResult?.position ?? null,
+    libraryAppCount: results.filter((result) => result.isLibraryApp).length,
     results,
   };
 }
-
 

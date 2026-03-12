@@ -72,7 +72,7 @@ export const createKeywordInputSchema = z.object({
 });
 
 export const exploreKeywordsInputSchema = z.object({
-  appId: z.coerce.number().int().positive(),
+  store: z.enum(["apple", "google"]),
   seed: z.string().trim().min(2, "Enter at least 2 characters to explore keywords"),
   country: z.string().trim().min(2).max(2).default("us").transform((value) => value.toLowerCase()),
   language: z.string().trim().min(2).max(5).default("en").transform((value) => value.toLowerCase()),
@@ -91,21 +91,17 @@ export const keywordExplorerResultSchema = z.object({
   summary: z.string().nullable(),
   inCatalogAppId: z.number().int().nullable(),
   inCatalogType: z.enum(["owned", "competitor"]).nullable(),
-  isSelectedApp: z.boolean(),
+  isLibraryApp: z.boolean(),
 });
 
 export const keywordExplorerResponseSchema = z.object({
-  appId: z.number().int().positive(),
   store: z.enum(["apple", "google"]),
-  selectedAppName: z.string(),
-  selectedAppStoreId: z.string(),
   seed: z.string(),
   country: z.string(),
   language: z.string(),
   requestedLimit: z.number().int().positive(),
   generatedAt: z.string(),
-  selectedAppFound: z.boolean(),
-  selectedAppResultPosition: z.number().int().positive().nullable(),
+  libraryAppCount: z.number().int().nonnegative(),
   results: z.array(keywordExplorerResultSchema),
 });
 
@@ -240,5 +236,4 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
   }
   return url;
 }
-
 

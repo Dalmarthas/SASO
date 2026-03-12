@@ -152,11 +152,9 @@ class DatabaseStorage implements IStorage {
   }
 
   async exploreKeywords(input: ExploreKeywordsInput): Promise<KeywordExplorerResponse> {
-    const selectedApp = await this.getAppForExplorer(input.appId);
     const catalogApps = await this.getApps();
 
     return buildKeywordExplorerResponse({
-      selectedApp,
       input,
       catalogApps,
     });
@@ -243,20 +241,6 @@ class DatabaseStorage implements IStorage {
     if (existing.some((keyword) => normalizeKeywordTerm(keyword.term) === normalizedTerm)) {
       throw new Error("This keyword is already tracked for the selected app and market.");
     }
-  }
-
-  private async getAppForExplorer(appId: number) {
-    const [app] = await this.database
-      .select()
-      .from(apps)
-      .where(eq(apps.id, appId))
-      .limit(1);
-
-    if (!app) {
-      throw new Error("Select a valid app to explore keywords.");
-    }
-
-    return app;
   }
 
   private async hydrateKeywords(keywordsToHydrate: TrackedKeyword[]): Promise<KeywordListItem[]> {
@@ -409,11 +393,9 @@ class MemoryStorage implements IStorage {
   }
 
   async exploreKeywords(input: ExploreKeywordsInput): Promise<KeywordExplorerResponse> {
-    const selectedApp = this.getAppForExplorer(input.appId);
     const catalogApps = await this.getApps();
 
     return buildKeywordExplorerResponse({
-      selectedApp,
       input,
       catalogApps,
     });
@@ -520,15 +502,6 @@ class MemoryStorage implements IStorage {
     }
   }
 
-  private getAppForExplorer(appId: number) {
-    const app = this.apps.find((entry) => entry.id === appId);
-    if (!app) {
-      throw new Error("Select a valid app to explore keywords.");
-    }
-
-    return app;
-  }
-
   private async hydrateKeywords(keywordsToHydrate: TrackedKeyword[]): Promise<KeywordListItem[]> {
     return keywordsToHydrate.map((keyword) => {
       const entries = [...this.snapshots]
@@ -553,5 +526,4 @@ class MemoryStorage implements IStorage {
 }
 
 export const storage: IStorage = hasDatabase ? new DatabaseStorage() : new MemoryStorage();
-
 
